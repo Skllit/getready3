@@ -1,0 +1,99 @@
+ ******  NOTE -extend the repositories with JPA  if any doubt contact (nivedan R)  
+
+LIBRARY CONTROLLER
+_____________________________________________
+package com.wecp.library.controller;
+
+import com.wecp.library.controller.exception.BookNotAvailableException;
+import com.wecp.library.domain.Book;
+import com.wecp.library.domain.Issue;
+import com.wecp.library.repository.BookRepository;
+import com.wecp.library.repository.IssueRepository;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
+import reactor.core.publisher.Mono;
+
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.Optional;
+
+/**
+ * REST controller for managing library system process
+ */
+@RestController
+@RequestMapping("/api/v1")
+public class LibraryController {
+
+    @Autowired
+    private BookRepository bookRepository;
+
+    @Autowired
+    private IssueRepository issueRepository;
+
+
+    /**
+     * {@code POST  /issueBook} : Create a new issue.
+     *
+     * @param issue the issue to create.
+     * @return the {@link ResponseEntity} with status {@code 200 (OK)} and with body the new issue.
+     * throw {@link BookNotAvailableException} if the wanted books quantity is zero
+     */
+    @PostMapping("/issueBook")
+    public ResponseEntity<Issue> issueBook(@RequestBody Issue issue) {
+        if (issue.getBook() == null || issue.getBook().getId() == null) {
+            throw new BookNotAvailableException();
+        }
+        Optional<Book> bookOptional = bookRepository.findById(issue.getBook().getId());
+        if (bookOptional.isPresent()) {
+            Book book = bookOptional.get();
+            if (book.getQuantity() > 0) {
+                book.setQuantity(book.getQuantity() - 1);
+                bookRepository.save(book);
+                if (issue.getIssueDate() == null) {
+                    issue.setIssueDate(LocalDate.now());
+                }
+                issue.setBook(book); 
+
+                Issue savedIssue = issueRepository.save(issue);
+                return ResponseEntity.ok().body(savedIssue);
+            } else {
+                throw new BookNotAvailableException();
+            }
+        } else {
+            throw new BookNotAvailableException();
+        }
+    }
+
+    /**
+     * {@code POST  /depositBook} : Inquiry the issue if there is a fine
+     *
+     * @param issue the issue to inquiry.
+     * @return the Mono with fine or just return 0
+     */
+    
+    @PostMapping("/depositBook")
+    public Mono<Integer> depositBook(@RequestBody Issue issue) {
+        Optional<Issue> existingIssueOptional = issueRepository.findById(issue.getId());
+        if (existingIssueOptional.isPresent()) {
+            Issue existingIssue = existingIssueOptional.get();
+            long daysBetween = ChronoUnit.DAYS.between(
+                existingIssue.getIssueDate(),
+                existingIssue.getReturnDate()
+            );
+            int allowedPeriod = existingIssue.getPeriod();
+            int finePerDay = 6; 
+            if (daysBetween > allowedPeriod) {
+                int overdueDays = (int) (daysBetween - allowedPeriod);
+                return Mono.just(overdueDays * finePerDay);
+            } else {
+                return Mono.just(0);
+            }
+        } else {
+            return Mono.just(0);
+        }
+    }
+}
